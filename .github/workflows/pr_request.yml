@@ -1,0 +1,134 @@
+name: PR Validation & Auto Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  pr-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Parse PR Description for Checkboxes
+        id: parse
+        run: |
+          PR_BODY=$(jq -r .pull_request.body "$GITHUB_EVENT_PATH")
+          if echo "$PR_BODY" | grep -q "- \[ \]"; then
+            echo "Some checkboxes are unchecked ❌. PR validation failed."
+            FAILURE_REASON="⚠️ **Unchecked PR checklist items detected!**\nEnsure all checkboxes are marked before proceeding."
+            echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
+          else
+            echo "All checkboxes are marked ✅"
+
+      - name: Check for Merge Conflicts
+        id: conflicts
+        continue-on-error: true
+        run: |
+          git fetch origin main
+          if git merge-base --is-ancestor HEAD origin/main; then
+            echo "No conflicts detected ✅"
+          else
+            echo "Merge conflicts detected ❌. Proceeding with validation."
+            MERGE_CONFLICTS="❌ **Merge Conflicts Found!**\nResolve conflicts with \`main\` before merging."
+            echo "MERGE_CONFLICTS=$MERGE_CONFLICTS" >> $GITHUB_ENV
+          fi
+
+      - name: Run PHPStan Static Analysis
+        id: phpstan
+        continue-on-error: true
+        run: |
+          composer require --dev phpstan/phpstan
+          vendor/bin/phpstan analyse --level=max app/ > phpstan_report.txt || true
+          if [ -s phpstan_report.txt ]; then
+            echo "PHPStan found issues! ❌"
+            echo "PHPSTAN_ISSUES=$(cat phpstan_report.txt)" >> $GITHUB_ENV
+          fi
+
+      - name: Run PHP-CS-Fixer
+        id: phpcs
+        continue-on-error: true
+        run: |
+          composer require --dev friendsofphp/php-cs-fixer
+          vendor/bin/php-cs-fixer fix --dry-run --diff > php_cs_report.txt || true
+          if [ -s php_cs_report.txt ]; then
+            echo "PHP-CS-Fixer found issues! ❌"
+            echo "PHPCS_ISSUES=$(cat php_cs_report.txt)" >> $GITHUB_ENV
+          fi
+
+      - name: Automatically Fix PHP-CS Issues
+        run: |
+          vendor/bin/php-cs-fixer fix
+          git config --global user.email "github-actions@github.com"
+          git config --global user.name "GitHub Actions"
+          git add .
+          git commit -m "Auto-fix PHP-CS issues" || echo "No changes to commit"
+          git push || echo "No changes to push"
+
+      - name: Add PR Comment for Code Issues
+        if: env.PHPSTAN_ISSUES != '' || env.PHPCS_ISSUES != ''
+        run: |
+          COMMENT_BODY="### Code Review Issues Found ❌\n"
+          COMMENT_BODY+="🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n"
+          COMMENT_BODY+="👤 **Author:** Santhosh\n"
+          COMMENT_BODY+="📌 **Title:** ${{ github.event.pull_request.title }}\n\n"
+          if [ -n "$PHPSTAN_ISSUES" ]; then
+            COMMENT_BODY+="#### ⚠️ PHPStan Analysis:\n\`\`\`\n$PHPSTAN_ISSUES\n\`\`\`\n"
+          fi
+          if [ -n "$PHPCS_ISSUES" ]; then
+            COMMENT_BODY+="#### ⚠️ PHP-CS-Fixer Issues:\n\`\`\`\n$PHPCS_ISSUES\n\`\`\`\n"
+          fi
+          gh pr comment ${{ github.event.pull_request.number }} -b "$COMMENT_BODY"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Send Failure Notification to Discord
+        if: failure()
+        run: |
+          FAILURE_MSG="${MERGE_CONFLICTS:-$FAILURE_REASON}"
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d '{
+                 "embeds": [{
+                   "title": "❌ PR Validation Issues",
+                   "description": "'$FAILURE_MSG'\n\n🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** Santhosh\n📌 **Title:** ${{ github.event.pull_request.title }}",
+                   "color": 16711680
+                 }]
+               }' \
+               ${{ secrets.DISCORD_WEBHOOK }}
+
+      - name: Send Code Issues Warning to Discord
+        if: env.PHPSTAN_ISSUES != '' || env.PHPCS_ISSUES != ''
+        run: |
+          WARNING_MSG="⚠️ **Code Review Issues Found!**\n\n🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** Santhosh\n📌 **Title:** ${{ github.event.pull_request.title }}\n"
+          if [ -n "$PHPSTAN_ISSUES" ]; then
+            WARNING_MSG+="\n**PHPStan Issues:**\n\`\`\`\n$PHPSTAN_ISSUES\n\`\`\`\n"
+          fi
+          if [ -n "$PHPCS_ISSUES" ]; then
+            WARNING_MSG+="\n**PHP-CS-Fixer Issues:**\n\`\`\`\n$PHPCS_ISSUES\n\`\`\`\n"
+          fi
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d '{
+                 "embeds": [{
+                   "title": "⚠️ Code Review Issues",
+                   "description": "'$WARNING_MSG'",
+                   "color": 16753920
+                 }]
+               }' \
+               ${{ secrets.DISCORD_WEBHOOK }}
+
+      - name: Send Success Notification to Discord
+        if: success()
+        run: |
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d '{
+                 "embeds": [{
+                   "title": "✅ PR is Ready for Merge",
+                   "description": "No issues found! 🎉\n\n🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** Santhosh\n📌 **Title:** ${{ github.event.pull_request.title }}",
+                   "color": 65280
+                 }]
+               }' \
+               ${{ secrets.DISCORD_WEBHOOK }}
