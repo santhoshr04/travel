@@ -1,0 +1,81 @@
+# PR Validation & Merge Conflict Check
+# -----------------------------------
+# This GitHub Actions workflow automates the validation of pull requests.
+# It performs the following checks:
+# 1. Ensures all checkboxes in the PR description are marked.
+# 2. Checks if the PR has merge conflicts with the `main` branch.
+# 3. Sends notifications to Discord with the validation results.
+
+name: PR Validation & Merge Conflict Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  pr-validation:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout the Code
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Fetch full history for accurate merge conflict checking
+
+      # Step 2: Parse PR Description for Unchecked Checkboxes
+      - name: Parse PR Description for Checkboxes
+        id: parse
+        run: |
+          PR_BODY=$(jq -r .pull_request.body "$GITHUB_EVENT_PATH")
+          if echo "$PR_BODY" | grep -q "\- \[ \]"; then
+            echo "Some checkboxes are unchecked ❌. PR validation failed."
+            FAILURE_REASON="⚠️ **Unchecked PR checklist items detected!**\nEnsure all checkboxes are marked before proceeding."
+            echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
+            exit 1
+          fi
+          echo "All checkboxes are marked ✅"
+
+      # Step 3: Check for Merge Conflicts with `main`
+      - name: Check for Merge Conflicts
+        id: conflicts
+        run: |
+          git fetch origin main
+          if git merge-base --is-ancestor HEAD origin/main; then
+            echo "No conflicts detected ✅"
+          else
+            echo "Merge conflicts detected ❌. PR validation failed."
+            FAILURE_REASON="❌ **Merge Conflicts Found!**\nResolve conflicts with \`main\` before merging."
+            echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
+            exit 1
+          fi
+
+      # Step 4: Send Merge Conflict Notification to Discord (if conflicts exist)
+      - name: Send Merge Conflict Notification to Discord
+        if: failure()
+        run: |
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d '{
+                 "embeds": [{
+                   "title": "❌ Merge Conflict Detected",
+                   "description": "**A merge conflict was found in this PR!**\n\n🚨 **Issue:** Merge conflicts exist between this branch and `main`.\n🛠 **Action Required:** Please resolve the conflicts before merging.\n\n🔗 **Pull Request:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** ${{ github.event.pull_request.user.login }}\n📌 **Title:** ${{ github.event.pull_request.title }}",
+                   "color": 16711680
+                 }]
+               }' \
+               ${{ secrets.DISCORD_WEBHOOK }}
+
+      # Step 5: Send Success Notification to Discord (if no conflicts)
+      - name: Send Success Notification to Discord
+        if: success()
+        run: |
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d '{
+                 "embeds": [{
+                   "title": "✅ PR is Ready for Merge",
+                   "description": "**No merge conflicts detected!** 🎉\n\n✔️ **This PR is clean and can be merged safely.**\n\n🔗 **Pull Request:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** ${{ github.event.pull_request.user.login }}\n📌 **Title:** ${{ github.event.pull_request.title }}",
+                   "color": 65280
+                 }]
+               }' \
+               ${{ secrets.DISCORD_WEBHOOK }}
