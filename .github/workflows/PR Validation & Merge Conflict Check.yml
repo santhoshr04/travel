@@ -1,0 +1,61 @@
+name: PR Validation & Merge Conflict Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  pr-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Fetch full history for proper merge checking
+
+      - name: Check for Merge Conflicts
+        id: conflicts
+        run: |
+          git fetch origin main
+          git checkout -b temp-merge-check
+          MERGE_OUTPUT=$(git merge origin/main --no-commit --no-ff 2>&1 || echo "conflict")
+          
+          if [[ "$MERGE_OUTPUT" == *"conflict"* ]]; then
+            echo "Merge conflicts detected ❌"
+            FAILURE_REASON="❌ **Merge Conflicts Found!**\nResolve conflicts with \`main\` before merging."
+            echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
+            exit 1
+          else
+            echo "No conflicts detected ✅"
+          fi
+
+          git checkout -
+          git branch -D temp-merge-check
+
+      - name: Send Merge Conflict Notification to Discord
+        if: failure()
+        run: |
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d '{
+                 "embeds": [{
+                   "title": "❌ Merge Conflict Detected",
+                   "description": "'"$FAILURE_REASON"'\n\n🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** ${{ github.event.pull_request.user.login }}\n📌 **Title:** ${{ github.event.pull_request.title }}",
+                   "color": 16711680
+                 }]
+               }' \
+               ${{ secrets.DISCORD_WEBHOOK }}
+
+      - name: Send Success Notification to Discord
+        if: success()
+        run: |
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d '{
+                 "embeds": [{
+                   "title": "✅ PR is Ready for Merge",
+                   "description": "No merge conflicts found! 🎉\n\n🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** ${{ github.event.pull_request.user.login }}\n📌 **Title:** ${{ github.event.pull_request.title }}",
+                   "color": 65280
+                 }]
+               }' \
+               ${{ secrets.DISCORD_WEBHOOK }}
