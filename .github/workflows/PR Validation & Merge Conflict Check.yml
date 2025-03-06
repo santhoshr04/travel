@@ -1,0 +1,70 @@
+name: PR Validation & Merge Conflict Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  pr-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Parse PR Description for Checkboxes
+        id: parse
+        run: |
+          PR_BODY=$(jq -r .pull_request.body "$GITHUB_EVENT_PATH")
+          if echo "$PR_BODY" | grep -q "\- \[ \]"; then
+            echo "Some checkboxes are unchecked ❌. PR validation failed."
+            FAILURE_REASON="⚠️ **Unchecked PR checklist items detected!**\nEnsure all checkboxes are marked before proceeding."
+            echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
+            exit 1
+          fi
+          echo "All checkboxes are marked ✅"
+
+      - name: Check for Merge Conflicts
+        id: conflicts
+        run: |
+          git fetch origin main
+          git checkout main
+          git checkout -b temp-merge-check
+          if git merge $GITHUB_HEAD_REF --no-commit --no-ff; then
+            echo "No conflicts detected ✅"
+          else
+            echo "Merge conflicts detected ❌. PR validation failed."
+            FAILURE_REASON="❌ **Merge Conflicts Found!**\nResolve conflicts with \`main\` before merging."
+            echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
+            exit 1
+          fi
+          git merge --abort
+          git checkout $GITHUB_HEAD_REF
+          git branch -D temp-merge-check
+
+      - name: Send Merge Conflict Notification to Discord
+        if: failure()
+        run: |
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d '{
+                 "embeds": [{
+                   "title": "❌ Merge Conflict Detected",
+                   "description": "'"$FAILURE_REASON"'\n\n🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** ${{ github.event.pull_request.user.login }}\n📌 **Title:** ${{ github.event.pull_request.title }}",
+                   "color": 16711680
+                 }]
+               }' \
+               ${{ secrets.DISCORD_WEBHOOK }}
+
+      - name: Send Success Notification to Discord
+        if: success()
+        run: |
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d '{
+                 "embeds": [{
+                   "title": "✅ PR is Ready for Merge",
+                   "description": "No merge conflicts found! 🎉\n\n🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** ${{ github.event.pull_request.user.login }}\n📌 **Title:** ${{ github.event.pull_request.title }}",
+                   "color": 65280
+                 }]
+               }' \
+               ${{ secrets.DISCORD_WEBHOOK }}
