@@ -1,0 +1,25 @@
+- name: Check for Merge Conflicts
+  id: conflicts
+  run: |
+    git fetch origin main
+    git checkout -b temp-merge-check
+
+    if git merge origin/main --no-commit --no-ff; then
+      echo "No conflicts detected ✅"
+      MERGE_STATUS="✅ No merge conflicts detected! Ready to merge."
+    else
+      echo "Merge conflicts detected ❌. PR validation failed."
+      FAILURE_REASON="❌ **Merge Conflicts Found!**\nResolve conflicts with \`main\` before merging."
+      echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
+
+      # Send message to Discord
+      DISCORD_WEBHOOK_URL="YOUR_DISCORD_WEBHOOK_URL_HERE"
+      MESSAGE_CONTENT="{\"content\": \"🚨 Merge Conflict Alert!\n$FAILURE_REASON\"}"
+      curl -H "Content-Type: application/json" -X POST -d "$MESSAGE_CONTENT" $DISCORD_WEBHOOK_URL
+
+      exit 1
+    fi
+
+    git merge --abort
+    git checkout -
+    git branch -D temp-merge-check
