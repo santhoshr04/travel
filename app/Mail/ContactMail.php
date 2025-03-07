@@ -2,14 +2,17 @@
 
 namespace App\Mail;
 
-use Illuminate\Bus\Queueable;
+use Illuminate\Bus\Queueable;use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Mail\Mailable;
+use Illuminate\Queue\SerializesModels;
+
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
 
 class ContactMail extends Mailable
 {
-    use Queueable, SerializesModels;
+    use Queueable, SerializesModels;    use Queueable, SerializesModels;
 
     public $name;
     public $email;
@@ -18,6 +21,7 @@ class ContactMail extends Mailable
     /**
      * Create a new message instance.
      */
+    public function __construct($name, $email, $messageContent)*/
     public function __construct($name, $email, $messageContent)
     {
         $this->name = $name;
