@@ -8,11 +8,6 @@ jobs:
   check-conflicts:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Base Branch (main)
-        uses: actions/checkout@v3
-        with:
-          ref: main  # Checkout the main branch
-
       - name: Check Mergeability via GitHub API
         id: check_merge
         run: |
@@ -33,21 +28,24 @@ jobs:
           fi
 
       - name: Send Merge Conflict Notification to Discord
-        if: env.conflict == 'true'
+        if: always()
         run: |
-          curl -H "Content-Type: application/json" \
-               -X POST \
-               -d '{
-                 "embeds": [{
-                   "title": "❌ Merge Conflict Detected",
-                   "description": "Resolve conflicts before merging.\n\n🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** ${{ github.event.pull_request.user.login }}",
-                   "color": 16711680
-                 }]
-               }' \
-               ${{ secrets.DISCORD_WEBHOOK }}
+          if [[ "${{ env.conflict }}" == "true" ]]; then
+            curl -H "Content-Type: application/json" \
+                 -X POST \
+                 -d '{
+                   "embeds": [{
+                     "title": "❌ Merge Conflict Detected",
+                     "description": "Resolve conflicts before merging.\n\n🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** ${{ github.event.pull_request.user.login }}",
+                     "color": 16711680
+                   }]
+                 }' \
+                 ${{ secrets.DISCORD_WEBHOOK }}
+            exit 1  # Ensure the job fails if there are conflicts
+          fi
 
       - name: Send Success Notification to Discord
-        if: env.conflict == 'false'
+        if: success()
         run: |
           curl -H "Content-Type: application/json" \
                -X POST \
