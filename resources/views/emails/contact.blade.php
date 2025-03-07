@@ -1,20 +1,41 @@
-@component('mail::message')@component('mail::message')
-# New Contact Form Submission
-# New Contact Form Submission
+<?php
 
-**Name:** {{ $name }}  **Name:** {{ $name }}  
-**Email:** {{ $email }} **Email:** {{ $email }}   
+namespace App\Mail;
 
-**Message:**  **Message:**  
-{{ $messageContent }}
+use Illuminate\Bus\Queueable;use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Mail\Mailable;
+use Illuminate\Queue\SerializesModels;
 
-Thanks,  
-{{ $messageContent }}
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Mail\Mailable;
+use Illuminate\Queue\SerializesModels;
 
-Thanks,  
-**{{ config('app.name') }} Support**  **{{ config('app.name') }} Support**  
+class ContactMail extends Mailable
+{
+    use Queueable, SerializesModels;    use Queueable, SerializesModels;
 
-@component('mail::button', ['url' => route('home')])
-Visit {{ config('app.name') }}
-@endcomponent
-@endcomponent
+    public $name;
+    public $email;
+    public $messageContent;
+
+    /**
+     * Create a new message instance.
+     */
+    public function __construct($name, $email, $messageContent)*/
+    public function __construct($name, $email, $messageContent)
+    {
+        $this->name = $name;
+        $this->email = $email;
+        $this->messageContent = $messageContent;
+    }
+
+    /**
+     * Build the message.
+     */
+    public function build()
+    {
+        return $this->from('hq@gccvirtual.com', 'GCC Virtual Support')
+                    ->subject('[GCC Virtual] Contact Form Message')
+                    ->markdown('emails.contact');
+    }
+}
