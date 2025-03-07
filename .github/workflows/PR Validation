@@ -1,21 +1,45 @@
+name: PR Validation & Merge Conflict Check
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check-conflicts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Mergeability via GitHub API
+        id: check_merge
+        run: |
+          PR_URL="${{ github.event.pull_request.url }}"
+          MERGEABLE_STATE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "$PR_URL" | jq -r '.mergeable')
+
+          echo "Mergeable State: $MERGEABLE_STATE"
+
+          if [[ "$MERGEABLE_STATE" == "false" ]]; then
+            echo "❌ Merge conflicts detected!"
+            echo "conflict=true" >> $GITHUB_ENV
+            exit 1
+          else
+            echo "✅ No conflicts detected!"
+            echo "conflict=false" >> $GITHUB_ENV
+          fi
+
       - name: Send Merge Conflict Notification to Discord
         if: always()
         run: |
           if [[ "${{ env.conflict }}" == "true" ]]; then
-            TITLE="❌ Merge Conflict Detected - ${{ github.event.pull_request.title }}"
-            DESCRIPTION="Resolve conflicts before merging.\n\n🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** ${{ github.event.pull_request.user.login }}"
-
-            JSON_PAYLOAD=$(jq -n --arg title "$TITLE" --arg desc "$DESCRIPTION" '{
-              "embeds": [{
-                "title": $title,
-                "description": $desc,
-                "color": 16711680
-              }]
-            }')
-
             curl -H "Content-Type: application/json" \
                  -X POST \
-                 -d "$JSON_PAYLOAD" \
+                 -d '{
+                   "embeds": [{
+                     "title": "❌ Merge Conflict Detected",
+                     "description": "Resolve conflicts before merging.\n\n **PR:** [View PR](${{ github.event.pull_request.html_url }})\n **Author:** ${{ github.event.pull_request.user.login }}  \n **Title:** ${{ github.event.pull_request.title }}",
+                     "color": 16711680
+                   }]
+                 }' \
                  ${{ secrets.DISCORD_WEBHOOK }}
             exit 1  # Ensure the job fails if there are conflicts
           fi
@@ -23,18 +47,13 @@
       - name: Send Success Notification to Discord
         if: success()
         run: |
-          TITLE="✅ PR is Ready for Merge - ${{ github.event.pull_request.title }}"
-          DESCRIPTION="No merge conflicts found! 🎉\n\n🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** ${{ github.event.pull_request.user.login }}"
-
-          JSON_PAYLOAD=$(jq -n --arg title "$TITLE" --arg desc "$DESCRIPTION" '{
-            "embeds": [{
-              "title": $title,
-              "description": $desc,
-              "color": 65280
-            }]
-          }')
-
           curl -H "Content-Type: application/json" \
                -X POST \
-               -d "$JSON_PAYLOAD" \
+               -d '{
+                 "embeds": [{
+                   "title": "✅ PR is Ready for Merge",
+                   "description": "No merge conflicts found! 🎉\n\n **PR:** [View PR](${{ github.event.pull_request.html_url }})\n **Author:** ${{ github.event.pull_request.user.login }} \n **Title:** ${{ github.event.pull_request.title }}",
+                   "color": 65280
+                 }]
+               }' \
                ${{ secrets.DISCORD_WEBHOOK }}
