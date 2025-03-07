@@ -18,36 +18,38 @@ jobs:
         run: |
           git fetch origin main
           git checkout -b temp-merge-check
-          MERGE_OUTPUT=$(git merge origin/main --no-commit --no-ff 2>&1 || echo "conflict")
+          MERGE_OUTPUT=$(git merge origin/main --no-commit --no-ff 2>&1) || CONFLICT=true
           
-          if [[ "$MERGE_OUTPUT" == *"conflict"* ]]; then
+          if [[ "$CONFLICT" == "true" ]]; then
             echo "Merge conflicts detected ❌"
             FAILURE_REASON="❌ **Merge Conflicts Found!**\nResolve conflicts with \`main\` before merging."
             echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
+            echo "::set-output name=conflict::true"
             exit 1
           else
             echo "No conflicts detected ✅"
+            echo "::set-output name=conflict::false"
           fi
 
           git checkout -
           git branch -D temp-merge-check
 
       - name: Send Merge Conflict Notification to Discord
-        if: failure()
+        if: steps.conflicts.outputs.conflict == 'true'
         run: |
           curl -H "Content-Type: application/json" \
                -X POST \
                -d '{
                  "embeds": [{
                    "title": "❌ Merge Conflict Detected",
-                   "description": "'"$FAILURE_REASON"'\n\n🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** ${{ github.event.pull_request.user.login }}\n📌 **Title:** ${{ github.event.pull_request.title }}",
+                   "description": "'"${{ env.FAILURE_REASON }}"'\n\n🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** ${{ github.event.pull_request.user.login }}\n📌 **Title:** ${{ github.event.pull_request.title }}",
                    "color": 16711680
                  }]
                }' \
                ${{ secrets.DISCORD_WEBHOOK }}
 
       - name: Send Success Notification to Discord
-        if: success()
+        if: steps.conflicts.outputs.conflict == 'false'
         run: |
           curl -H "Content-Type: application/json" \
                -X POST \
