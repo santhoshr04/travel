@@ -8,10 +8,14 @@ jobs:
   check-pr:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch PR Description
+      - name: Fetch PR Details
         id: fetch_pr
         run: |
           PR_URL="${{ github.event.pull_request.url }}"
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_AUTHOR="${{ github.event.pull_request.user.login }}"
+          PR_LINK="${{ github.event.pull_request.html_url }}"
+          
           DESCRIPTION=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             "$PR_URL" | jq -r '.body')
@@ -20,11 +24,13 @@ jobs:
           CHECKED_COUNT=$(grep -o '\[x\]' pr_description.txt | wc -l)
           TOTAL_COUNT=$(grep -o '\[.\]' pr_description.txt | wc -l)
 
-          echo "Checked: $CHECKED_COUNT / $TOTAL_COUNT"
           echo "checked_count=$CHECKED_COUNT" >> $GITHUB_ENV
           echo "total_count=$TOTAL_COUNT" >> $GITHUB_ENV
+          echo "pr_title=$PR_TITLE" >> $GITHUB_ENV
+          echo "pr_author=$PR_AUTHOR" >> $GITHUB_ENV
+          echo "pr_link=$PR_LINK" >> $GITHUB_ENV
 
-      - name: Check Mergeability via GitHub API
+      - name: Check Mergeability
         id: check_merge
         run: |
           PR_URL="${{ github.event.pull_request.url }}"
@@ -32,38 +38,37 @@ jobs:
             -H "Accept: application/vnd.github.v3+json" \
             "$PR_URL" | jq -r '.mergeable')
 
-          echo "Mergeable State: $MERGEABLE_STATE"
-
           if [[ "$MERGEABLE_STATE" == "false" ]]; then
-            echo "❌ Merge conflicts detected!"
             echo "conflict=true" >> $GITHUB_ENV
           else
-            echo "✅ No conflicts detected!"
             echo "conflict=false" >> $GITHUB_ENV
           fi
 
-      - name: Send PR Status Notification to Discord
+      - name: Send PR Status to Discord
         run: |
-          CHECKS_STATUS="✅ **All checklist items are checked!**"
-          if [[ "${{ env.checked_count }}" -lt "${{ env.total_count }}" ]]; then
-            CHECKS_STATUS="⚠️ **Some checklist items are unchecked!**"
+          if [[ "${{ env.checked_count }}" -eq "${{ env.total_count }}" ]]; then
+            CHECKS_STATUS="✅ Checklist items are checked."
+          else
+            CHECKS_STATUS="⚠️ Some checklist items are unchecked."
           fi
 
           if [[ "${{ env.conflict }}" == "true" ]]; then
             COLOR=16711680
-            STATUS_MESSAGE="❌ **Merge Conflict Detected!**\nResolve conflicts before merging."
+            STATUS_MESSAGE="❌ Merge Conflict Detected"
+            MERGE_STATUS="Resolve conflicts before merging."
           else
             COLOR=65280
-            STATUS_MESSAGE="✅ **PR is Ready for Merge!**"
+            STATUS_MESSAGE="✅ PR is Ready for Merge"
+            MERGE_STATUS="No merge conflicts found! 🎉"
           fi
 
           curl -H "Content-Type: application/json" \
                -X POST \
                -d '{
                  "embeds": [{
-                   "title": "${STATUS_MESSAGE} - ${{ github.event.pull_request.title }}",
-                   "description": "**PR Author:** ${{ github.event.pull_request.user.login }}\n🔗 **PR Link:** [View PR](${{ github.event.pull_request.html_url }})\n\n${CHECKS_STATUS}",
-                   "color": '${COLOR}'
+                   "title": "'"$STATUS_MESSAGE"'",
+                   "description": "'"$MERGE_STATUS"'\n'"$CHECKS_STATUS"'\n\n🔗 **PR:** [View PR](${{ env.pr_link }})\n👤 **Author:** ${{ env.pr_author }}",
+                   "color": '"$COLOR"'
                  }]
                }' \
                ${{ secrets.DISCORD_WEBHOOK }}
