@@ -12,7 +12,7 @@ use Illuminate\Queue\SerializesModels;
 
 class ContactMail extends Mailable
 {
-    use Queueable, SerializesModels;    use Queueable, SerializesModels;
+    use Queueable, SerializesModels;    use Queueable, sdhjasdasdas;
 
     public $name;
     public $email;
