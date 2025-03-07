@@ -5,9 +5,25 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  check-conflicts:
+  check-pr:
     runs-on: ubuntu-latest
     steps:
+      - name: Fetch PR Description
+        id: fetch_pr
+        run: |
+          PR_URL="${{ github.event.pull_request.url }}"
+          DESCRIPTION=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "$PR_URL" | jq -r '.body')
+
+          echo "$DESCRIPTION" > pr_description.txt
+          CHECKED_COUNT=$(grep -o '\[x\]' pr_description.txt | wc -l)
+          TOTAL_COUNT=$(grep -o '\[.\]' pr_description.txt | wc -l)
+
+          echo "Checked: $CHECKED_COUNT / $TOTAL_COUNT"
+          echo "checked_count=$CHECKED_COUNT" >> $GITHUB_ENV
+          echo "total_count=$TOTAL_COUNT" >> $GITHUB_ENV
+
       - name: Check Mergeability via GitHub API
         id: check_merge
         run: |
@@ -21,39 +37,33 @@ jobs:
           if [[ "$MERGEABLE_STATE" == "false" ]]; then
             echo "❌ Merge conflicts detected!"
             echo "conflict=true" >> $GITHUB_ENV
-            exit 1
           else
             echo "✅ No conflicts detected!"
             echo "conflict=false" >> $GITHUB_ENV
           fi
 
-      - name: Send Merge Conflict Notification to Discord
-        if: always()
+      - name: Send PR Status Notification to Discord
         run: |
-          if [[ "${{ env.conflict }}" == "true" ]]; then
-            curl -H "Content-Type: application/json" \
-                 -X POST \
-                 -d '{
-                   "embeds": [{
-                     "title": "❌ Merge Conflict Detected  - ${{ github.event.pull_request.title }}",
-                     "description": "Resolve conflicts before merging.\n\n🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** ${{ github.event.pull_request.user.login }}",
-                     "color": 16711680
-                   }]
-                 }' \
-                 ${{ secrets.DISCORD_WEBHOOK }}
-            exit 1  # Ensure the job fails if there are conflicts
+          CHECKS_STATUS="✅ **All checklist items are checked!**"
+          if [[ "${{ env.checked_count }}" -lt "${{ env.total_count }}" ]]; then
+            CHECKS_STATUS="⚠️ **Some checklist items are unchecked!**"
           fi
 
-      - name: Send Success Notification to Discord
-        if: success()
-        run: |
+          if [[ "${{ env.conflict }}" == "true" ]]; then
+            COLOR=16711680
+            STATUS_MESSAGE="❌ **Merge Conflict Detected!**\nResolve conflicts before merging."
+          else
+            COLOR=65280
+            STATUS_MESSAGE="✅ **PR is Ready for Merge!**"
+          fi
+
           curl -H "Content-Type: application/json" \
                -X POST \
                -d '{
                  "embeds": [{
-                   "title": "✅ PR is Ready for Merge  - ${{ github.event.pull_request.title }}",
-                   "description": "No merge conflicts found! 🎉\n\n🔗 **PR:** [View PR](${{ github.event.pull_request.html_url }})\n👤 **Author:** ${{ github.event.pull_request.user.login }}",
-                   "color": 65280
+                   "title": "${STATUS_MESSAGE} - ${{ github.event.pull_request.title }}",
+                   "description": "**PR Author:** ${{ github.event.pull_request.user.login }}\n🔗 **PR Link:** [View PR](${{ github.event.pull_request.html_url }})\n\n${CHECKS_STATUS}",
+                   "color": '${COLOR}'
                  }]
                }' \
                ${{ secrets.DISCORD_WEBHOOK }}
