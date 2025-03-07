@@ -18,24 +18,20 @@ jobs:
         run: |
           git fetch origin main
           git checkout -b temp-merge-check
-          MERGE_OUTPUT=$(git merge origin/main --no-commit --no-ff 2>&1) || CONFLICT=true
-          
-          if [[ "$CONFLICT" == "true" ]]; then
+          if ! git merge origin/main --no-commit --no-ff 2>&1; then
             echo "Merge conflicts detected ❌"
-            FAILURE_REASON="❌ **Merge Conflicts Found!**\nResolve conflicts with \`main\` before merging."
-            echo "FAILURE_REASON=$FAILURE_REASON" >> $GITHUB_ENV
-            echo "::set-output name=conflict::true"
-            exit 1
+            echo "FAILURE_REASON=❌ **Merge Conflicts Found!**\nResolve conflicts with \`main\` before merging." >> $GITHUB_ENV
+            echo "conflict=true" >> $GITHUB_ENV
           else
             echo "No conflicts detected ✅"
-            echo "::set-output name=conflict::false"
+            echo "conflict=false" >> $GITHUB_ENV
           fi
 
           git checkout -
           git branch -D temp-merge-check
 
       - name: Send Merge Conflict Notification to Discord
-        if: steps.conflicts.outputs.conflict == 'true'
+        if: env.conflict == 'true'
         run: |
           curl -H "Content-Type: application/json" \
                -X POST \
@@ -49,7 +45,7 @@ jobs:
                ${{ secrets.DISCORD_WEBHOOK }}
 
       - name: Send Success Notification to Discord
-        if: steps.conflicts.outputs.conflict == 'false'
+        if: env.conflict == 'false'
         run: |
           curl -H "Content-Type: application/json" \
                -X POST \
