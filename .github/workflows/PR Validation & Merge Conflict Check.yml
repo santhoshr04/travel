@@ -67,7 +67,7 @@ jobs:
                -d '{
                  "embeds": [{
                    "title": "'"$STATUS_MESSAGE"'",
-                   "description": "'"$MERGE_STATUS"'\n'"$CHECKS_STATUS"'\n\n🔗 **PR:** [View PR](${{ env.pr_link }})\n👤 **Author:** ${{ env.pr_author }}",
+                   "description": "'"$MERGE_STATUS"'\n'"$CHECKS_STATUS"'\n\n🔗 **PR:** [View PR](${{ env.pr_link }})\n👤 **Author:** ${{ env.pr_author }}\n **Title:** ${{ env.pr_title }}",
                    "color": '"$COLOR"'
                  }]
                }' \
